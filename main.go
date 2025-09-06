@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"generadorPlantillas/db"
 	"generadorPlantillas/handlers"
@@ -20,8 +21,12 @@ func main() {
 	handlers.RegisterHandlersWithMux(mux, database) // vamos a crear esta función en handlers
 
 	// Configurar CORS
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "http://localhost:5173" // fallback para local
+	}
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173"},
+		AllowedOrigins:   []string{allowedOrigin},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
 		AllowedHeaders:   []string{"Content-Type"},
 		AllowCredentials: true,
@@ -30,7 +35,10 @@ func main() {
 	// Aplicar middleware CORS
 	handler := c.Handler(mux)
 
-	port := ":8080"
-	log.Printf("🌍 Servidor escuchando en http://localhost%s", port)
-	log.Fatal(http.ListenAndServe(port, handler))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // fallback para local
+	}
+	log.Printf("🌍 Servidor escuchando en http://localhost:%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
