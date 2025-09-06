@@ -39,6 +39,6 @@ func main() {
 	if port == "" {
 		port = "8080" // fallback para local
 	}
-	log.Printf("🌍 Servidor escuchando en http://localhost:%s", port)
+	log.Printf("🌍 Servidor escuchando en %s:%s", allowedOrigin, port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
