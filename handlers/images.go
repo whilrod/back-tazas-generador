@@ -132,38 +132,70 @@ func ListImagesHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 }
 
 // SearchImagesByHashtagHandler busca imágenes con hashtags y paginación
+// SearchImagesByHashtagHandler busca imágenes con hashtags (include/exclude) y paginación
 func SearchImagesByHashtagHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	tags := r.URL.Query()["tag"]
+	includeTags := r.URL.Query()["include"]
+	excludeTags := r.URL.Query()["exclude"]
 
 	// Si no hay tags, devolver lista normal (como si fuese /images)
-	if len(tags) == 0 {
+	if len(includeTags) == 0 && len(excludeTags) == 0 {
 		ListImagesHandler(db, w, r)
 		return
 	}
 
 	page, limit, offset := getPaginationParams(r)
 
-	// Construir array PostgreSQL
-	pgArray := "{" + strings.Join(tags, ",") + "}"
-
+	// Base query
 	query := `
-		SELECT uuid, url_image, url_thumbnail, hashtags, xata_createdat, size_kb
-		FROM imagenes
-		WHERE hashtags && $1
-		ORDER BY xata_createdat DESC
-		LIMIT $2 OFFSET $3
-	`
+        SELECT uuid, url_image, url_thumbnail, hashtags, xata_createdat, size_kb
+        FROM imagenes
+        WHERE 1=1
+    `
+	args := []interface{}{}
+	argPos := 1
 
-	images, err := queryImages(db, query, pgArray, limit, offset)
+	// include → deben aparecer TODOS
+	if len(includeTags) > 0 {
+		query += fmt.Sprintf(" AND hashtags @> $%d", argPos)
+		args = append(args, "{"+strings.Join(includeTags, ",")+"}")
+		argPos++
+	}
+
+	// exclude → excluir si tiene ALGUNO de los tags
+	if len(excludeTags) > 0 {
+		query += fmt.Sprintf(" AND NOT (hashtags && $%d)", argPos)
+		args = append(args, "{"+strings.Join(excludeTags, ",")+"}")
+		argPos++
+	}
+
+	// Orden y paginación
+	query += fmt.Sprintf(" ORDER BY xata_createdat DESC LIMIT $%d OFFSET $%d", argPos, argPos+1)
+	args = append(args, limit, offset)
+
+	images, err := queryImages(db, query, args...)
 	if err != nil {
 		http.Error(w, "Error consultando la base de datos", http.StatusInternalServerError)
 		return
 	}
 
-	// Contar total con filtro
+	// Contar total (igual lógica para paginación)
+	countQuery := "SELECT COUNT(*) FROM imagenes WHERE 1=1"
+	countArgs := []interface{}{}
+	countPos := 1
+
+	if len(includeTags) > 0 {
+		countQuery += fmt.Sprintf(" AND hashtags @> $%d", countPos)
+		countArgs = append(countArgs, "{"+strings.Join(includeTags, ",")+"}")
+		countPos++
+	}
+	if len(excludeTags) > 0 {
+		countQuery += fmt.Sprintf(" AND NOT (hashtags && $%d)", countPos)
+		countArgs = append(countArgs, "{"+strings.Join(excludeTags, ",")+"}")
+		countPos++
+	}
+
 	var total int
-	err = db.QueryRow(`SELECT COUNT(*) FROM imagenes WHERE hashtags && $1`, pgArray).Scan(&total)
-	if err != nil {
+	if err := db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
 		http.Error(w, "Error contando registros", http.StatusInternalServerError)
 		return
 	}
