@@ -131,7 +131,6 @@ func ListImagesHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	utils.RespondJSON(w, response)
 }
 
-// SearchImagesByHashtagHandler busca imágenes con hashtags y paginación
 // SearchImagesByHashtagHandler busca imágenes con hashtags (include/exclude) y paginación
 func SearchImagesByHashtagHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	includeTags := r.URL.Query()["include"]
@@ -156,7 +155,7 @@ func SearchImagesByHashtagHandler(db *sql.DB, w http.ResponseWriter, r *http.Req
 
 	// include → deben aparecer TODOS
 	if len(includeTags) > 0 {
-		query += fmt.Sprintf(" AND hashtags @> $%d", argPos)
+		query += fmt.Sprintf(" AND hashtags && $%d", argPos)
 		args = append(args, "{"+strings.Join(includeTags, ",")+"}")
 		argPos++
 	}
@@ -184,7 +183,7 @@ func SearchImagesByHashtagHandler(db *sql.DB, w http.ResponseWriter, r *http.Req
 	countPos := 1
 
 	if len(includeTags) > 0 {
-		countQuery += fmt.Sprintf(" AND hashtags @> $%d", countPos)
+		countQuery += fmt.Sprintf(" AND hashtags && $%d", countPos)
 		countArgs = append(countArgs, "{"+strings.Join(includeTags, ",")+"}")
 		countPos++
 	}
