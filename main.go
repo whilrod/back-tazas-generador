@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"generadorPlantillas/db"
 	"generadorPlantillas/handlers"
@@ -25,8 +26,13 @@ func main() {
 	if allowedOrigin == "" {
 		allowedOrigin = "http://localhost:5173" // fallback para local
 	}
+
+	// Soporte para múltiples orígenes separados por coma
+	origins := strings.Split(allowedOrigin, ",")
+
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{allowedOrigin},
+		AllowedOrigins: origins,
+		//AllowedOrigins:   []string{allowedOrigin},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
 		AllowedHeaders:   []string{"Content-Type"},
 		AllowCredentials: true,

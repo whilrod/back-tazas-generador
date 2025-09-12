@@ -29,6 +29,12 @@ func RegisterHandlersWithMux(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("/images/hashtag", func(w http.ResponseWriter, r *http.Request) {
 		SearchImagesByHashtagHandler(db, w, r)
 	})
+	mux.HandleFunc("/demoImage", func(w http.ResponseWriter, r *http.Request) {
+		ListDemoImageHandler(db, w, r)
+	})
+	mux.HandleFunc("/demoImage/hashtag", func(w http.ResponseWriter, r *http.Request) {
+		SearchDemoImagesByHashtagHandler(db, w, r)
+	})
 	mux.HandleFunc("/images/pdf", func(w http.ResponseWriter, r *http.Request) {
 		GeneratePDFHandler(db, w, r)
 	})
@@ -60,6 +66,76 @@ func getPaginationParams(r *http.Request) (page, limit, offset int) {
 // ---------------------------
 // Handlers
 // ---------------------------
+
+// ListImagesHandler lista imágenes con paginación
+func ListDemoImageHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	// valores por defecto
+	page := 1
+	limit := 20
+
+	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+		page = p
+	}
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+
+	offset := (page - 1) * limit
+
+	// contar total de registros
+	var total int
+	err := db.QueryRow(`SELECT COUNT(*) FROM "demo_imagenes"`).Scan(&total)
+	if err != nil {
+		log.Printf("❌ Error contando registros: %v", err)
+		http.Error(w, "Error consultando la base de datos", http.StatusInternalServerError)
+		return
+	}
+
+	// consulta con paginación
+	query := `SELECT uuid, url_image, url_thumbnail, hashtags, xata_createdat, size_kb 
+	          FROM "demo_imagenes" 
+	          ORDER BY xata_createdat DESC
+	          LIMIT $1 OFFSET $2`
+
+	rows, err := db.Query(query, limit, offset)
+	if err != nil {
+		log.Printf("❌ Error consultando la base de datos: %v", err)
+		http.Error(w, "Error consultando la base de datos", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var results []models.Image
+	for rows.Next() {
+		var img models.Image
+		var hashtagsRaw string
+
+		if err := rows.Scan(&img.UUID, &img.URLImage, &img.URLThumbnail, &hashtagsRaw, &img.CreatedAt, &img.SizeKb); err != nil {
+			log.Printf("❌ Error leyendo fila: %v", err)
+			http.Error(w, "Error leyendo filas", http.StatusInternalServerError)
+			return
+		}
+
+		img.Hashtags = utils.ParsePgArray(hashtagsRaw)
+		results = append(results, img)
+	}
+
+	// total de páginas
+	totalPages := (total + limit - 1) / limit
+
+	response := map[string]interface{}{
+		"results":     results,
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": totalPages,
+	}
+
+	utils.RespondJSON(w, response)
+}
 
 // ListImagesHandler lista imágenes con paginación
 func ListImagesHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
@@ -179,6 +255,84 @@ func SearchImagesByHashtagHandler(db *sql.DB, w http.ResponseWriter, r *http.Req
 
 	// Contar total (igual lógica para paginación)
 	countQuery := "SELECT COUNT(*) FROM imagenes WHERE 1=1"
+	countArgs := []interface{}{}
+	countPos := 1
+
+	if len(includeTags) > 0 {
+		countQuery += fmt.Sprintf(" AND hashtags && $%d", countPos)
+		countArgs = append(countArgs, "{"+strings.Join(includeTags, ",")+"}")
+		countPos++
+	}
+	if len(excludeTags) > 0 {
+		countQuery += fmt.Sprintf(" AND NOT (hashtags && $%d)", countPos)
+		countArgs = append(countArgs, "{"+strings.Join(excludeTags, ",")+"}")
+		countPos++
+	}
+
+	var total int
+	if err := db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+		http.Error(w, "Error contando registros", http.StatusInternalServerError)
+		return
+	}
+	totalPages := (total + limit - 1) / limit
+
+	utils.RespondJSON(w, map[string]interface{}{
+		"results":     images,
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": totalPages,
+	})
+}
+
+// SearchDemoImagesByHashtagHandler busca imágenes con hashtags (include/exclude) y paginación
+func SearchDemoImagesByHashtagHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	includeTags := r.URL.Query()["include"]
+	excludeTags := r.URL.Query()["exclude"]
+
+	// Si no hay tags, devolver lista normal (como si fuese /images)
+	if len(includeTags) == 0 && len(excludeTags) == 0 {
+		ListDemoImageHandler(db, w, r)
+		return
+	}
+
+	page, limit, offset := getPaginationParams(r)
+
+	// Base query
+	query := `
+        SELECT uuid, url_image, url_thumbnail, hashtags, xata_createdat, size_kb
+        FROM demo_imagenes
+        WHERE 1=1
+    `
+	args := []interface{}{}
+	argPos := 1
+
+	// include → deben aparecer TODOS
+	if len(includeTags) > 0 {
+		query += fmt.Sprintf(" AND hashtags && $%d", argPos)
+		args = append(args, "{"+strings.Join(includeTags, ",")+"}")
+		argPos++
+	}
+
+	// exclude → excluir si tiene ALGUNO de los tags
+	if len(excludeTags) > 0 {
+		query += fmt.Sprintf(" AND NOT (hashtags && $%d)", argPos)
+		args = append(args, "{"+strings.Join(excludeTags, ",")+"}")
+		argPos++
+	}
+
+	// Orden y paginación
+	query += fmt.Sprintf(" ORDER BY xata_createdat DESC LIMIT $%d OFFSET $%d", argPos, argPos+1)
+	args = append(args, limit, offset)
+
+	images, err := queryImages(db, query, args...)
+	if err != nil {
+		http.Error(w, "Error consultando la base de datos", http.StatusInternalServerError)
+		return
+	}
+
+	// Contar total (igual lógica para paginación)
+	countQuery := "SELECT COUNT(*) FROM demo_imagenes WHERE 1=1"
 	countArgs := []interface{}{}
 	countPos := 1
 
