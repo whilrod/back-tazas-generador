@@ -28,7 +28,7 @@ func main() {
 	}
 
 	// Soporte para múltiples orígenes separados por coma
-	origins := strings.Split(allowedOrigin, ",")
+	origins := strings.Split(allowedOrigin, " ")
 
 	c := cors.New(cors.Options{
 		AllowedOrigins: origins,
