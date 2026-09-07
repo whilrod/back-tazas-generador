@@ -10,7 +10,7 @@
 
 - **Frontend (Netlify)** → Cliente SPA en React que consume esta API.  
 - **Backend (Render)** → Servicio REST en Go.  
-- **Database (Xata/Postgres)** → Base de datos gestionada como servicio independiente (DBaaS).  
+- **Database (Supabase)** → Base de datos gestionada como servicio independiente (DBaaS).  
 - **Storage (Cloudinary/Xata files)** → Repositorio de imágenes externas.  
 
 📌 Modelo: **Backend desacoplado (BFF)**  
